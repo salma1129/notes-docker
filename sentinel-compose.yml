@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  sentinel-rasp:
+    image: caeshoru/sentinel-rasp:latest
+    ports: ["5000:8081"]
+    environment:
+      - SENTINEL_SECRET=9a32291277dc3afd91067285e4acf1e96b5ce199cda1b3d65b9b721b371b3375
+      - SENTINEL_TOKEN=8d79c1b8-5cd7-47ce-b01f-cef740b8781e
+      - SENTINEL_URL=http://localhost:5000/upload-intelligence
+      - INTERNAL_APP_URL=http://app:5000
+      - REPO_NAME=salma1129/notes-docker
+      - REPO_VERSION=${GITHUB_SHA}
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    volumes: [./otel-config.yaml:/etc/otel-config.yaml]
+    environment: [REPO_TOKEN=8d79c1b8-5cd7-47ce-b01f-cef740b8781e, REPO_NAME=salma1129/notes-docker, BACKEND_URL=http://localhost:5000]
+    command: ["--config=/etc/otel-config.yaml"]
