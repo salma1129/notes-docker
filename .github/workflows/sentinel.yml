@@ -5,12 +5,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
       - name: Security Scans
         run: |
-          docker run --rm -v $(pwd):/src returntocorp/semgrep semgrep scan --json > s.json || echo "[]" > s.json
-          docker run --rm -v $(pwd):/root/.cache/ aquasec/trivy fs / --format json > t.json || echo '{"results":[]}' > t.json
-      - name: Ship Intelligence
+          docker run --rm -v $(pwd):/path zricethezav/gitleaks:latest detect --source="/path" --report-format json --report-path l.json || echo "[]" > l.json
+          docker run --rm -v $(pwd):/src returntocorp/semgrep semgrep scan --json > s.json || echo '{ "results": [] }' > s.json
+          docker run --rm -v $(pwd):/src -v $HOME/.cache/trivy:/root/.cache/ aquasec/trivy:0.50.2 fs /src --format json > t.json || echo '{ "Results": [] }' > t.json
+          docker run --rm --user root -v $(pwd):/zap/wrk:rw -t ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py -t "http://localhost:8000" -J z.json -m 5 || true
+          test -f z.json || echo '{"site":[]}' > z.json
+          jq empty l.json >/dev/null 2>&1 || echo "[]" > l.json
+          jq empty s.json >/dev/null 2>&1 || echo '{"results":[]}' > s.json
+          jq empty t.json >/dev/null 2>&1 || echo '{"Results":[]}' > t.json
+          jq empty z.json >/dev/null 2>&1 || echo '{"site":[]}' > z.json
+      - name: Ship
         run: |
-          PAYLOAD=$(jq -n --arg r "salma1129/notes-docker" --arg t "8d79c1b8-5cd7-47ce-b01f-cef740b8781e" --arg v "${{GITHUB_SHA}}" --arg type "vulnerability" --argjson s "$(cat s.json)" --argjson t "$(cat t.json)" '$ARGS.named')
-          SIG=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "9a32291277dc3afd91067285e4acf1e96b5ce199cda1b3d65b9b721b371b3375" | sed 's/.* //')
-          curl -X POST "http://localhost:5000/upload-intelligence" -H "X-Sentinel-Token: 8d79c1b8-5cd7-47ce-b01f-cef740b8781e" -H "X-Sentinel-Signature: $SIG" -H "Content-Type: application/json" -d "$PAYLOAD"
+          jq -n             --arg repo "salma1129/notes-docker"             --arg token "${{ secrets.SENTINEL_APP_TOKEN }}"             --arg ver "${{ github.sha }}"             --arg ts "$(date +%s)"             --slurpfile s s.json             --slurpfile t t.json             --slurpfile l l.json             --slurpfile z z.json             '{repo: $repo, token: $token, version: $ver, timestamp: $ts, scans: {semgrep: ($s[0]//{}), trivy: ($t[0]//{}), gitleaks: ($l[0]//[]), zap: ($z[0]//{})}}' > payload.json
+
+          SIG=$(openssl dgst -sha256 -hmac "${{ secrets.SENTINEL_APP_SECRET }}" payload.json | sed 's/.* //')
+
+          curl -X POST "https://worlds-somerset-mods-assumes.trycloudflare.com/upload-intelligence"             -H "X-Sentinel-Token: ${{ secrets.SENTINEL_APP_TOKEN }}"             -H "X-Sentinel-Signature: $SIG"             -H "Content-Type: application/json"             -H "bypass-tunnel-reminder: true"             --data-binary @payload.json
